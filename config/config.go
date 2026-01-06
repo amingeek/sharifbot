@@ -1,68 +1,94 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"strconv"
-	"strings"
 
 	"github.com/joho/godotenv"
 )
 
 type Config struct {
-	BotToken         string
-	AIAPIEndpoint    string
-	AIAPIKey         string
-	AdminUsername    string
-	AdminPassword    string
-	JWTSecret        string
-	APIPort          string
-	AdminPort        string
-	SupportPort      string
-	DatabasePath     string
-	LogLevel         string
-	DailyTokenLimit  int
-	MaxFileSizeMB    int
-	UploadPath       string
-	TelegramBotDebug bool
-	MegaPrompt       string
+	// Bot Configuration
+	BotToken string
+
+	// AI Configuration
+	AIAPIEndpoint string
+	AIAPIKey      string
+
+	// Admin Configuration
+	AdminUsername string
+	AdminPassword string
+	JWTSecret     string
+
+	// Server Configuration
+	APIPort     int
+	AdminPort   int
+	SupportPort int
+
+	// Database Configuration
+	DatabasePath string
+
+	// File Configuration
+	MaxFileSizeMB int
+	UploadPath    string
+
+	// Logging Configuration
+	LogLevel string
+
+	// Token Configuration
+	DailyTokenLimit int
+
+	// System Configuration
+	Timezone string
 }
 
-func Load() (*Config, error) {
-	// Load .env file if exists
+var AppConfig *Config
+
+func LoadConfig() error {
+	// Load .env file
 	_ = godotenv.Load()
 
-	// Get environment variables with defaults
-	apiPort := getEnv("API_PORT", "8080")
-	adminPort := getEnv("ADMIN_PORT", "8081")
-	supportPort := getEnv("SUPPORT_PORT", "8082")
-	dailyTokenLimit, _ := strconv.Atoi(getEnv("DAILY_TOKEN_LIMIT", "30"))
-	maxFileSizeMB, _ := strconv.Atoi(getEnv("MAX_FILE_SIZE_MB", "10"))
-	telegramBotDebug := strings.ToLower(getEnv("TELEGRAM_BOT_DEBUG", "false")) == "true"
+	AppConfig = &Config{
+		BotToken:        getEnv("BOT_TOKEN", ""),
+		AIAPIEndpoint:   getEnv("AI_API_ENDPOINT", "https://api.openai.com/v1/chat/completions"),
+		AIAPIKey:        getEnv("AI_API_KEY", ""),
+		AdminUsername:   getEnv("ADMIN_USERNAME", "admin"),
+		AdminPassword:   getEnv("ADMIN_PASSWORD", ""),
+		JWTSecret:       getEnv("JWT_SECRET", "your-secret-key-min-32-characters"),
+		APIPort:         getEnvInt("API_PORT", 8080),
+		AdminPort:       getEnvInt("ADMIN_PORT", 8081),
+		SupportPort:     getEnvInt("SUPPORT_PORT", 8082),
+		DatabasePath:    getEnv("DATABASE_PATH", "./data/bot.db"),
+		MaxFileSizeMB:   getEnvInt("MAX_FILE_SIZE_MB", 10),
+		UploadPath:      getEnv("UPLOAD_PATH", "./data/uploads"),
+		LogLevel:        getEnv("LOG_LEVEL", "info"),
+		DailyTokenLimit: getEnvInt("DAILY_TOKEN_LIMIT", 30),
+		Timezone:        getEnv("TIMEZONE", "Asia/Tehran"),
+	}
 
-	return &Config{
-		BotToken:         getEnv("BOT_TOKEN", ""),
-		AIAPIEndpoint:    getEnv("AI_API_ENDPOINT", "https://api.openai.com/v1/chat/completions"),
-		AIAPIKey:         getEnv("AI_API_KEY", ""),
-		AdminUsername:    getEnv("ADMIN_USERNAME", "admin"),
-		AdminPassword:    getEnv("ADMIN_PASSWORD", "admin123"),
-		JWTSecret:        getEnv("JWT_SECRET", "your-super-secret-jwt-key-change-in-production"),
-		APIPort:          apiPort,
-		AdminPort:        adminPort,
-		SupportPort:      supportPort,
-		DatabasePath:     getEnv("DATABASE_PATH", "./data"),
-		LogLevel:         getEnv("LOG_LEVEL", "info"),
-		DailyTokenLimit:  dailyTokenLimit,
-		MaxFileSizeMB:    maxFileSizeMB,
-		UploadPath:       getEnv("UPLOAD_PATH", "./data/uploads"),
-		TelegramBotDebug: telegramBotDebug,
-		MegaPrompt:       getEnv("MEGA_PROMPT", "شما دستیار آموزشی تکنوشریف هستید، متخصص برنامه‌نویسی و راهنمایی دوره‌ها."),
-	}, nil
+	if AppConfig.BotToken == "" {
+		return fmt.Errorf("BOT_TOKEN is required in .env file")
+	}
+
+	if AppConfig.AIAPIKey == "" {
+		return fmt.Errorf("AI_API_KEY is required in .env file")
+	}
+
+	return nil
 }
 
-func getEnv(key, defaultValue string) string {
-	value := os.Getenv(key)
-	if value == "" {
-		return defaultValue
+func getEnv(key, defaultVal string) string {
+	if value, exists := os.LookupEnv(key); exists {
+		return value
 	}
-	return value
+	return defaultVal
+}
+
+func getEnvInt(key string, defaultVal int) int {
+	valStr := getEnv(key, "")
+	if val, err := strconv.Atoi(valStr); err == nil {
+		return val
+	}
+	return defaultVal
 }

@@ -9,27 +9,45 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-type DB struct {
-	*gorm.DB
-}
+var DB *gorm.DB
 
-func Init(dbPath string) (*DB, error) {
-	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Info),
+func InitDatabase(databasePath string) error {
+	var err error
+
+	log.Printf("🔌 اتصال به دیتابیس: %s\n", databasePath)
+
+	DB, err = gorm.Open(sqlite.Open(databasePath), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
 	})
+
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect database: %w", err)
+		return fmt.Errorf("خطا در اتصال به دیتابیس: %w", err)
 	}
 
-	// Enable foreign keys for SQLite
-	db.Exec("PRAGMA foreign_keys = ON")
+	// تنظیمات اتصال
+	sqlDB, err := DB.DB()
+	if err != nil {
+		return fmt.Errorf("خطا در دریافت DB instance: %w", err)
+	}
 
-	log.Println("✅ Database connected successfully")
-	return &DB{db}, nil
+	sqlDB.SetMaxIdleConns(10)
+	sqlDB.SetMaxOpenConns(100)
+
+	// اجرای migration‌ها
+	if err := RunMigrations(DB); err != nil {
+		return fmt.Errorf("خطا در migration: %w", err)
+	}
+
+	log.Println("✅ دیتابیس با موفقیت مقداردهی شد")
+	return nil
 }
 
-func (db *DB) Close() error {
-	sqlDB, err := db.DB.DB()
+func GetDB() *gorm.DB {
+	return DB
+}
+
+func CloseDatabase() error {
+	sqlDB, err := DB.DB()
 	if err != nil {
 		return err
 	}

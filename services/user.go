@@ -1,205 +1,162 @@
 package services
 
 import (
+	"bufio"
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
-	"gorm.io/gorm"
-	"sharifbot/database"
+	"telegram-bot/database"
+	"telegram-bot/utils"
 )
 
-type UserService struct {
-	db *gorm.DB
+type UserService struct{}
+
+// GetUser دریافت کاربر
+func (s *UserService) GetUser(userID uint) (*database.User, error) {
+	var user database.User
+	if err := database.DB.First(&user, userID).Error; err != nil {
+		return nil, fmt.Errorf("کاربر یافت نشد")
+	}
+	return &user, nil
 }
 
-func NewUserService(db *gorm.DB) *UserService {
-	return &UserService{db: db}
-}
-
-// GetUserByTelegramID gets user by Telegram ID
+// GetUserByTelegramID دریافت کاربر بر اساس Telegram ID
 func (s *UserService) GetUserByTelegramID(telegramID int64) (*database.User, error) {
 	var user database.User
-	if err := s.db.Where("telegram_id = ?", telegramID).First(&user).Error; err != nil {
-		return nil, err
+	if err := database.DB.Where("telegram_id = ?", telegramID).First(&user).Error; err != nil {
+		return nil, fmt.Errorf("کاربر یافت نشد")
 	}
 	return &user, nil
 }
 
-// GetUserByID gets user by database ID
-func (s *UserService) GetUserByID(id uint) (*database.User, error) {
+// GetUserByPhone دریافت کاربر بر اساس شماره تلفن
+func (s *UserService) GetUserByPhone(phone string) (*database.User, error) {
 	var user database.User
-	if err := s.db.First(&user, id).Error; err != nil {
-		return nil, err
+	if err := database.DB.Where("phone_number = ?", phone).First(&user).Error; err != nil {
+		return nil, fmt.Errorf("کاربر یافت نشد")
 	}
 	return &user, nil
 }
 
-// GetUserByPhone gets user by phone number
-func (s *UserService) GetUserByPhone(phoneNumber string) (*database.User, error) {
-	var user database.User
-	if err := s.db.Where("phone_number = ?", phoneNumber).First(&user).Error; err != nil {
-		return nil, err
-	}
-	return &user, nil
+// UpdateUser به‌روزرسانی کاربر
+func (s *UserService) UpdateUser(user *database.User) error {
+	return database.DB.Save(user).Error
 }
 
-// GetAllUsers gets all users with pagination
-func (s *UserService) GetAllUsers(page, limit int, search string) ([]database.User, int64, error) {
+// DeleteUser حذف کاربر
+func (s *UserService) DeleteUser(userID uint) error {
+	return database.DB.Delete(&database.User{}, userID).Error
+}
+
+// GetAllUsers دریافت تمام کاربران
+func (s *UserService) GetAllUsers(limit, offset int) ([]database.User, int64, error) {
 	var users []database.User
 	var total int64
 
-	query := s.db.Model(&database.User{})
+	database.DB.Model(&database.User{}).Count(&total)
 
-	if search != "" {
-		searchTerm := "%" + search + "%"
-		query = query.Where("full_name LIKE ? OR phone_number LIKE ? OR national_code LIKE ?",
-			searchTerm, searchTerm, searchTerm)
+	if err := database.DB.Limit(limit).Offset(offset).Find(&users).Error; err != nil {
+		return nil, 0, err
 	}
 
-	// Get total count
-	query.Count(&total)
-
-	// Apply pagination
-	offset := (page - 1) * limit
-	err := query.Limit(limit).Offset(offset).Order("created_at DESC").Find(&users).Error
-
-	return users, total, err
+	return users, total, nil
 }
 
-// CreateUser creates a new user
-func (s *UserService) CreateUser(user *database.User) error {
-	return s.db.Create(user).Error
+// SearchUsers جستجوی کاربران
+func (s *UserService) SearchUsers(query string) ([]database.User, error) {
+	var users []database.User
+	if err := database.DB.Where("full_name LIKE ? OR phone_number LIKE ? OR national_code LIKE ?",
+		"%"+query+"%", "%"+query+"%", "%"+query+"%").
+		Find(&users).Error; err != nil {
+		return nil, err
+	}
+	return users, nil
 }
 
-// UpdateUser updates a user
-func (s *UserService) UpdateUser(user *database.User) error {
-	user.UpdatedAt = time.Now()
-	return s.db.Save(user).Error
-}
+// ImportUsers وارد کردن کاربران از فایل
+func (s *UserService) ImportUsers(filePath string) (int, []string, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return 0, nil, fmt.Errorf("خطا در باز کردن فایل: %w", err)
+	}
+	defer file.Close()
 
-// DeleteUser deletes a user
-func (s *UserService) DeleteUser(id uint) error {
-	// Start a transaction
-	tx := s.db.Begin()
+	scanner := bufio.NewScanner(file)
+	var importedCount int
+	var errors []string
 
-	// Delete related records first
-	if err := tx.Where("user_id = ?", id).Delete(&database.Conversation{}).Error; err != nil {
-		tx.Rollback()
-		return err
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+
+		parts := strings.Split(line, ":")
+		if len(parts) < 3 {
+			errors = append(errors, fmt.Sprintf("خط نامعتبر: %s", line))
+			continue
+		}
+
+		phone := strings.TrimSpace(parts[0])
+		national := strings.TrimSpace(parts[1])
+		name := strings.TrimSpace(parts[2])
+
+		// اعتبارسنجی
+		if !utils.ValidatePhoneNumber(phone) {
+			errors = append(errors, fmt.Sprintf("شماره نامعتبر: %s", phone))
+			continue
+		}
+
+		if !utils.ValidateNationalCode(national) {
+			errors = append(errors, fmt.Sprintf("کد ملی نامعتبر: %s", national))
+			continue
+		}
+
+		// بررسی تکرار
+		var existing database.User
+		if err := database.DB.Where("phone_number = ? OR national_code = ?", phone, national).
+			First(&existing).Error; err == nil {
+			errors = append(errors, fmt.Sprintf("کاربر قبلاً وارد شده: %s", phone))
+			continue
+		}
+
+		// ایجاد کاربر
+		user := database.User{
+			TelegramID:     0,
+			PhoneNumber:    phone,
+			NationalCode:   national,
+			FullName:       name,
+			DailyTokens:    30,
+			CreatedAt:      time.Now(),
+			UpdatedAt:      time.Now(),
+			LastTokenReset: time.Now(),
+		}
+
+		if err := database.DB.Create(&user).Error; err != nil {
+			errors = append(errors, fmt.Sprintf("خطا در ایجاد کاربر %s: %v", phone, err))
+			continue
+		}
+
+		importedCount++
 	}
 
-	if err := tx.Where("user_id = ?", id).Delete(&database.SupportMessage{}).Error; err != nil {
-		tx.Rollback()
-		return err
-	}
-
-	if err := tx.Where("user_id = ?", id).Delete(&database.CodeAnalysis{}).Error; err != nil {
-		tx.Rollback()
-		return err
-	}
-
-	if err := tx.Where("user_id = ?", id).Delete(&database.DailyTokenUsage{}).Error; err != nil {
-		tx.Rollback()
-		return err
-	}
-
-	// Delete the user
-	if err := tx.Delete(&database.User{}, id).Error; err != nil {
-		tx.Rollback()
-		return err
-	}
-
-	return tx.Commit().Error
+	return importedCount, errors, nil
 }
 
-// GetUserStats gets user statistics
-func (s *UserService) GetUserStats() (map[string]interface{}, error) {
-	stats := make(map[string]interface{})
-
-	// Total users
-	var totalUsers int64
-	s.db.Model(&database.User{}).Count(&totalUsers)
-	stats["total_users"] = totalUsers
-
-	// Today's new users
-	today := time.Now().Truncate(24 * time.Hour)
-	var todayUsers int64
-	s.db.Model(&database.User{}).Where("created_at >= ?", today).Count(&todayUsers)
-	stats["today_users"] = todayUsers
-
-	// Active users (used tokens today)
-	var activeUsers int64
-	s.db.Model(&database.DailyTokenUsage{}).
-		Distinct("user_id").
-		Where("date = ? AND tokens_used > 0", today).
-		Count(&activeUsers)
-	stats["active_users"] = activeUsers
-
-	// Users with unlimited tokens
-	var unlimitedUsers int64
-	s.db.Model(&database.User{}).Where("unlimited_tokens = ?", true).Count(&unlimitedUsers)
-	stats["unlimited_users"] = unlimitedUsers
-
-	// Admin users
-	var adminUsers int64
-	s.db.Model(&database.User{}).Where("is_admin = ?", true).Count(&adminUsers)
-	stats["admin_users"] = adminUsers
-
-	// Support users
-	var supportUsers int64
-	s.db.Model(&database.User{}).Where("is_support = ?", true).Count(&supportUsers)
-	stats["support_users"] = supportUsers
-
-	// Online users
-	var onlineUsers int64
-	s.db.Model(&database.User{}).Where("is_online = ?", true).Count(&onlineUsers)
-	stats["online_users"] = onlineUsers
-
-	return stats, nil
-}
-
-// GetUserConversations gets user's conversations
-func (s *UserService) GetUserConversations(userID uint, page, limit int) ([]database.Conversation, int64, error) {
-	var conversations []database.Conversation
-	var total int64
-
-	s.db.Model(&database.Conversation{}).Where("user_id = ?", userID).Count(&total)
-	err := s.db.Where("user_id = ?", userID).
-		Order("created_at DESC").
-		Limit(limit).Offset((page - 1) * limit).
-		Find(&conversations).Error
-
-	return conversations, total, err
-}
-
-// GetUserCodeAnalyses gets user's code analyses
-func (s *UserService) GetUserCodeAnalyses(userID uint, page, limit int) ([]database.CodeAnalysis, int64, error) {
-	var analyses []database.CodeAnalysis
-	var total int64
-
-	s.db.Model(&database.CodeAnalysis{}).Where("user_id = ?", userID).Count(&total)
-	err := s.db.Where("user_id = ?", userID).
-		Order("created_at DESC").
-		Limit(limit).Offset((page - 1) * limit).
-		Find(&analyses).Error
-
-	return analyses, total, err
-}
-
-// ExportUsers exports all users to CSV format
+// ExportUsers خروجی کاربران
 func (s *UserService) ExportUsers() (string, error) {
 	var users []database.User
-	if err := s.db.Find(&users).Error; err != nil {
-		return "", err
+	if err := database.DB.Find(&users).Error; err != nil {
+		return "", fmt.Errorf("خطا در دریافت کاربران: %w", err)
 	}
 
-	// Create CSV content
-	csvContent := "ID,TelegramID,PhoneNumber,NationalCode,FullName,DailyTokens,UnlimitedTokens,IsAdmin,IsSupport,IsOnline,CreatedAt\n"
+	var content string
+	content += "Phone,NationalCode,FullName,DailyTokens,UnlimitedTokens,IsAdmin,IsSupport,CreatedAt\n"
 
 	for _, user := range users {
-		csvContent += fmt.Sprintf("%d,%d,%s,%s,%s,%d,%t,%t,%t,%t,%s\n",
-			user.ID,
-			user.TelegramID,
+		content += fmt.Sprintf("%s,%s,%s,%d,%v,%v,%v,%s\n",
 			user.PhoneNumber,
 			user.NationalCode,
 			user.FullName,
@@ -207,31 +164,65 @@ func (s *UserService) ExportUsers() (string, error) {
 			user.UnlimitedTokens,
 			user.IsAdmin,
 			user.IsSupport,
-			user.IsOnline,
 			user.CreatedAt.Format("2006-01-02 15:04:05"),
 		)
 	}
 
-	return csvContent, nil
+	return content, nil
 }
 
-// SearchUsers searches users by various criteria
-func (s *UserService) SearchUsers(query string, page, limit int) ([]database.User, int64, error) {
-	var users []database.User
-	var total int64
-
-	dbQuery := s.db.Model(&database.User{})
-
-	if query != "" {
-		searchTerm := "%" + query + "%"
-		dbQuery = dbQuery.Where("full_name LIKE ? OR phone_number LIKE ? OR national_code LIKE ? OR telegram_id LIKE ?",
-			searchTerm, searchTerm, searchTerm, searchTerm)
+// GetUserStats دریافت آمار کاربر
+func (s *UserService) GetUserStats(userID uint) (map[string]interface{}, error) {
+	var user database.User
+	if err := database.DB.First(&user, userID).Error; err != nil {
+		return nil, fmt.Errorf("کاربر یافت نشد")
 	}
 
-	dbQuery.Count(&total)
-	err := dbQuery.Limit(limit).Offset((page - 1) * limit).
-		Order("created_at DESC").
-		Find(&users).Error
+	var conversationCount int64
+	database.DB.Model(&database.Conversation{}).Where("user_id = ?", userID).Count(&conversationCount)
 
-	return users, total, err
+	var codeAnalysisCount int64
+	database.DB.Model(&database.CodeAnalysis{}).Where("user_id = ?", userID).Count(&codeAnalysisCount)
+
+	var totalTokensUsed int
+	database.DB.Model(&database.DailyTokenUsage{}).Where("user_id = ?", userID).Select("COALESCE(SUM(tokens_used), 0)").Scan(&totalTokensUsed)
+
+	stats := map[string]interface{}{
+		"user_id":           user.ID,
+		"full_name":         user.FullName,
+		"phone_number":      user.PhoneNumber,
+		"current_tokens":    user.DailyTokens,
+		"unlimited_tokens":  user.UnlimitedTokens,
+		"conversations":     conversationCount,
+		"code_analysis":     codeAnalysisCount,
+		"total_tokens_used": totalTokensUsed,
+		"created_at":        user.CreatedAt,
+		"last_token_reset":  user.LastTokenReset,
+	}
+
+	return stats, nil
+}
+
+// MakeAdmin تبدیل به ادمین
+func (s *UserService) MakeAdmin(userID uint, isAdmin bool) error {
+	return database.DB.Model(&database.User{}, userID).Update("is_admin", isAdmin).Error
+}
+
+// MakeSupport تبدیل به پشتیبان
+func (s *UserService) MakeSupport(userID uint, isSupport bool) error {
+	return database.DB.Model(&database.User{}, userID).Update("is_support", isSupport).Error
+}
+
+// GetOnlineSupporters دریافت پشتیبان‌های آنلاین
+func (s *UserService) GetOnlineSupporters() ([]database.User, error) {
+	var supporters []database.User
+	if err := database.DB.Where("is_support = ? AND is_online = ?", true, true).Find(&supporters).Error; err != nil {
+		return nil, err
+	}
+	return supporters, nil
+}
+
+// SetOnlineStatus تنظیم وضعیت آنلاین
+func (s *UserService) SetOnlineStatus(userID uint, isOnline bool) error {
+	return database.DB.Model(&database.User{}, userID).Update("is_online", isOnline).Error
 }

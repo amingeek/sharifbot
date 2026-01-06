@@ -1,63 +1,81 @@
 package database
 
 import (
-	"fmt"
 	"log"
 
 	"gorm.io/gorm"
 )
 
-func Migrate(db *gorm.DB) error {
-	log.Println("🔄 Running database migrations...")
+func RunMigrations(db *gorm.DB) error {
+	log.Println("🔄 شروع Migration جداول...")
 
-	// Drop tables in development (optional - comment in production)
-	// db.Migrator().DropTable(&User{}, &Conversation{}, &SupportMessage{},
-	//     &Setting{}, &DailyTokenUsage{}, &CodeAnalysis{}, &Admin{})
-
-	// Auto migrate all models
-	err := db.AutoMigrate(
-		&User{},
-		&Conversation{},
-		&SupportMessage{},
-		&Setting{},
-		&DailyTokenUsage{},
-		&CodeAnalysis{},
-		&Admin{},
-	)
-	if err != nil {
-		return fmt.Errorf("failed to migrate database: %w", err)
+	// جدول کاربران
+	if err := db.AutoMigrate(&User{}); err != nil {
+		return err
 	}
+	log.Println("✅ جدول users ایجاد شد")
 
-	// Create default admin if not exists
-	var adminCount int64
-	db.Model(&Admin{}).Count(&adminCount)
-	if adminCount == 0 {
-		defaultAdmin := Admin{
-			Username: "admin",
-			Password: "$2a$10$N9qo8uLOickgx2ZMRZoMye.KjJ1c9rR4C1R6B7FpW.7TjQ2V7lY2a", // admin123
-		}
-		db.Create(&defaultAdmin)
-		log.Println("✅ Default admin created (username: admin, password: admin123)")
+	// جدول گفتگوها
+	if err := db.AutoMigrate(&Conversation{}); err != nil {
+		return err
 	}
+	log.Println("✅ جدول conversations ایجاد شد")
 
-	// Create default settings
-	defaultSettings := map[string]string{
-		"daily_token_limit": "30",
-		"welcome_message":   "به ربات تکنوشریف خوش آمدید! 👋",
-		"ai_api_endpoint":   "https://api.openai.com/v1/chat/completions",
-		"mega_prompt":       "شما دستیار آموزشی تکنوشریف هستید، متخصص برنامه‌نویسی و راهنمایی دوره‌ها.",
+	// جدول پیام‌های پشتیبانی
+	if err := db.AutoMigrate(&SupportMessage{}); err != nil {
+		return err
 	}
+	log.Println("✅ جدول support_messages ایجاد شد")
 
-	for key, value := range defaultSettings {
-		var setting Setting
-		if err := db.Where("key = ?", key).First(&setting).Error; err != nil {
-			if err == gorm.ErrRecordNotFound {
-				setting = Setting{Key: key, Value: value}
-				db.Create(&setting)
-			}
-		}
+	// جدول تنظیمات
+	if err := db.AutoMigrate(&Setting{}); err != nil {
+		return err
 	}
+	log.Println("✅ جدول settings ایجاد شد")
 
-	log.Println("✅ Database migrations completed successfully")
+	// جدول مصرف توکن روزانه
+	if err := db.AutoMigrate(&DailyTokenUsage{}); err != nil {
+		return err
+	}
+	log.Println("✅ جدول daily_token_usage ایجاد شد")
+
+	// جدول تحلیل کد
+	if err := db.AutoMigrate(&CodeAnalysis{}); err != nil {
+		return err
+	}
+	log.Println("✅ جدول code_analysis ایجاد شد")
+
+	// تنظیمات پیش‌فرض
+	seedDefaultSettings(db)
+
+	log.Println("✅ تمام جداول با موفقیت ایجاد شدند")
 	return nil
+}
+
+func seedDefaultSettings(db *gorm.DB) {
+	defaultSettings := []Setting{
+		{
+			Key:   "welcome_message",
+			Value: "سلام! به ربات تکنوشریف خوش‌آمدید. این ربات برای کمک به شما در برنامه‌نویسی و دوره‌های آموزشی طراحی شده است.",
+		},
+		{
+			Key:   "mega_prompt",
+			Value: "شما دستیار آموزشی تکنوشریف هستید، متخصص برنامه‌نویسی و راهنمایی دوره‌ها.",
+		},
+		{
+			Key:   "daily_token_limit",
+			Value: "30",
+		},
+		{
+			Key:   "ai_model",
+			Value: "gpt-3.5-turbo",
+		},
+	}
+
+	for _, setting := range defaultSettings {
+		var existing Setting
+		if err := db.Where("key = ?", setting.Key).First(&existing).Error; err == gorm.ErrRecordNotFound {
+			db.Create(&setting)
+		}
+	}
 }
