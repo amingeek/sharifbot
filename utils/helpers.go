@@ -1,21 +1,26 @@
 package utils
 
 import (
-	"crypto/md5"
+	"crypto/rand"
 	"fmt"
-	"io"
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
 )
 
-// HashPassword رمزنگاری رمز عبور
+// ValidatePhoneNumber اعتبارسنجی شماره تلفن ایرانی
+
+// ValidateNationalCode اعتبارسنجی کد ملی ایرانی
+
+// HashPassword هش کردن رمز عبور
 func HashPassword(password string) (string, error) {
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	return string(hash), err
+	bytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	return string(bytes), err
 }
 
 // VerifyPassword بررسی رمز عبور
@@ -24,109 +29,46 @@ func VerifyPassword(hashedPassword, password string) bool {
 	return err == nil
 }
 
-// GenerateUniqueFilename تولید نام فایل یکتا
-func GenerateUniqueFilename(originalFilename string) string {
-	ext := filepath.Ext(originalFilename)
-	name := originalFilename[:len(originalFilename)-len(ext)]
+// IsValidCodeFile بررسی پسوند فایل کد
+
+// DetectLanguage تشخیص زبان برنامه‌نویسی
+
+// GenerateUniqueFilename تولید نام یکتا برای فایل
+func GenerateUniqueFilename(originalName string) string {
+	ext := filepath.Ext(originalName)
+	name := strings.TrimSuffix(originalName, ext)
+
 	timestamp := time.Now().UnixNano()
-	return fmt.Sprintf("%s_%d%s", name, timestamp, ext)
-}
+	randomBytes := make([]byte, 4)
+	rand.Read(randomBytes)
 
-// EnsureUploadDir اطمینان از وجود دایرکتوری آپلود
-func EnsureUploadDir(uploadPath string) error {
-	return os.MkdirAll(uploadPath, 0755)
-}
+	randomStr := fmt.Sprintf("%x", randomBytes)
 
-// DeleteFile حذف فایل
-func DeleteFile(filepath string) error {
-	return os.Remove(filepath)
+	return fmt.Sprintf("%s_%d_%s%s", name, timestamp, randomStr, ext)
 }
 
 // FileExists بررسی وجود فایل
-func FileExists(filepath string) bool {
-	_, err := os.Stat(filepath)
-	return err == nil
+func FileExists(path string) bool {
+	_, err := os.Stat(path)
+	return !os.IsNotExist(err)
 }
 
-// GetFileMD5 محاسبه MD5 فایل
-func GetFileMD5(filepath string) (string, error) {
-	file, err := os.Open(filepath)
-	if err != nil {
-		return "", err
-	}
-	defer file.Close()
-
-	hash := md5.New()
-	if _, err := io.Copy(hash, file); err != nil {
-		return "", err
-	}
-
-	return fmt.Sprintf("%x", hash.Sum(nil)), nil
+// DeleteFile حذف فایل
+func DeleteFile(path string) error {
+	return os.Remove(path)
 }
 
-// FormatBytes تبدیل Bytes به فرمت قابل‌فهم
-func FormatBytes(bytes int64) string {
-	units := []string{"B", "KB", "MB", "GB"}
-	size := float64(bytes)
-
-	for _, unit := range units {
-		if size < 1024 {
-			return fmt.Sprintf("%.2f %s", size, unit)
-		}
-		size /= 1024
-	}
-
-	return fmt.Sprintf("%.2f TB", size)
+// LogSuccess ثبت پیام موفقیت
+func LogSuccess(service, message string) {
+	log.Printf("✅ [%s] %s", service, message)
 }
 
-// TruncateText حذف متن طولانی
-func TruncateText(text string, maxLength int) string {
-	if len(text) > maxLength {
-		return text[:maxLength] + "..."
-	}
-	return text
+// LogError ثبت خطا
+func LogError(service, message string, err error) {
+	log.Printf("❌ [%s] %s: %v", service, message, err)
 }
 
-// LogError لاگ خطا
-func LogError(component string, err error) {
-	log.Printf("❌ [%s] خطا: %v", component, err)
-}
-
-// LogInfo لاگ اطلاعات
-func LogInfo(component string, message string) {
-	log.Printf("ℹ️  [%s] %s", component, message)
-}
-
-// LogSuccess لاگ موفقیت
-func LogSuccess(component string, message string) {
-	log.Printf("✅ [%s] %s", component, message)
-}
-
-// NormalizePhoneNumber نرمالایز شماره تلفن
-func NormalizePhoneNumber(phone string) string {
-	phone = phone[len(phone)-10:]
-	return "0" + phone
-}
-
-// GetCurrentTimestamp دریافت timestamp فعلی
-func GetCurrentTimestamp() string {
-	return time.Now().Format("2006-01-02 15:04:05")
-}
-
-// GetDayStart دریافت ابتدای روز
-func GetDayStart() time.Time {
-	now := time.Now()
-	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-}
-
-// GetDayEnd دریافت پایان روز
-func GetDayEnd() time.Time {
-	now := time.Now()
-	return time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 59, 999999999, now.Location())
-}
-
-// GetMidnight دریافت نیمه‌شب
-func GetMidnight() time.Time {
-	tomorrow := time.Now().AddDate(0, 0, 1)
-	return time.Date(tomorrow.Year(), tomorrow.Month(), tomorrow.Day(), 0, 0, 0, 0, tomorrow.Location())
+// LogInfo ثبت اطلاعات
+func LogInfo(service, message string) {
+	log.Printf("ℹ️  [%s] %s", service, message)
 }

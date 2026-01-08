@@ -205,12 +205,12 @@ func (s *UserService) GetUserStats(userID uint) (map[string]interface{}, error) 
 
 // MakeAdmin تبدیل به ادمین
 func (s *UserService) MakeAdmin(userID uint, isAdmin bool) error {
-	return database.DB.Model(&database.User{}, userID).Update("is_admin", isAdmin).Error
+	return database.DB.Model(&database.User{}).Where("id = ?", userID).Update("is_admin", isAdmin).Error
 }
 
 // MakeSupport تبدیل به پشتیبان
 func (s *UserService) MakeSupport(userID uint, isSupport bool) error {
-	return database.DB.Model(&database.User{}, userID).Update("is_support", isSupport).Error
+	return database.DB.Model(&database.User{}).Where("id = ?", userID).Update("is_support", isSupport).Error
 }
 
 // GetOnlineSupporters دریافت پشتیبان‌های آنلاین
@@ -224,5 +224,5 @@ func (s *UserService) GetOnlineSupporters() ([]database.User, error) {
 
 // SetOnlineStatus تنظیم وضعیت آنلاین
 func (s *UserService) SetOnlineStatus(userID uint, isOnline bool) error {
-	return database.DB.Model(&database.User{}, userID).Update("is_online", isOnline).Error
+	return database.DB.Model(&database.User{}).Where("id = ?", userID).Update("is_online", isOnline).Error
 }

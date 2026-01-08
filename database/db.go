@@ -3,6 +3,8 @@ package database
 import (
 	"fmt"
 	"log"
+	"os"
+	"time"
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -11,45 +13,52 @@ import (
 
 var DB *gorm.DB
 
-func InitDatabase(databasePath string) error {
+// InitDatabase راه‌اندازی دیتابیس
+func InitDatabase(dbPath string) error {
+	newLogger := logger.New(
+		log.New(os.Stdout, "\r\n", log.LstdFlags),
+		logger.Config{
+			SlowThreshold: time.Second,
+			LogLevel:      logger.Warn,
+			Colorful:      true,
+		},
+	)
+
 	var err error
-
-	log.Printf("🔌 اتصال به دیتابیس: %s\n", databasePath)
-
-	DB, err = gorm.Open(sqlite.Open(databasePath), &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Silent),
+	DB, err = gorm.Open(sqlite.Open(dbPath), &gorm.Config{
+		Logger: newLogger,
 	})
-
 	if err != nil {
 		return fmt.Errorf("خطا در اتصال به دیتابیس: %w", err)
 	}
 
-	// تنظیمات اتصال
-	sqlDB, err := DB.DB()
+	// خودکارسازی جدول‌ها
+	err = DB.AutoMigrate(
+		&User{},
+		&Conversation{},
+		&CodeAnalysis{},
+		&DailyTokenUsage{},
+		&Setting{},
+		&SupportMessage{},
+	)
 	if err != nil {
-		return fmt.Errorf("خطا در دریافت DB instance: %w", err)
+		return fmt.Errorf("خطا در خودکارسازی جدول‌ها: %w", err)
 	}
 
-	sqlDB.SetMaxIdleConns(10)
-	sqlDB.SetMaxOpenConns(100)
-
-	// اجرای migration‌ها
-	if err := RunMigrations(DB); err != nil {
-		return fmt.Errorf("خطا در migration: %w", err)
-	}
-
-	log.Println("✅ دیتابیس با موفقیت مقداردهی شد")
+	log.Println("✅ دیتابیس با موفقیت راه‌اندازی شد")
 	return nil
 }
 
-func GetDB() *gorm.DB {
-	return DB
-}
-
+// CloseDatabase بستن اتصال دیتابیس
 func CloseDatabase() error {
+	if DB == nil {
+		return nil
+	}
+
 	sqlDB, err := DB.DB()
 	if err != nil {
-		return err
+		return fmt.Errorf("خطا در دریافت connection دیتابیس: %w", err)
 	}
+
 	return sqlDB.Close()
 }

@@ -3,6 +3,7 @@ package bot
 import (
 	"fmt"
 	"log"
+	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"telegram-bot/database"
@@ -226,6 +227,7 @@ func handleSupportChat(chatID int64, text string, session *UserSession) {
 		UserID:     session.UserID,
 		Message:    text,
 		SenderType: "user",
+		CreatedAt:  time.Now(),
 	}
 	database.DB.Create(&supportMsg)
 
