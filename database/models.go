@@ -2,8 +2,6 @@ package database
 
 import (
 	"time"
-
-	"gorm.io/gorm"
 )
 
 type User struct {
