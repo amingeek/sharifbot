@@ -96,7 +96,7 @@ func main() {
 	log.Println("\n🛑 سیگنال shutdown دریافت شد...")
 
 	// متوقف کردن graceful
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	_, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	if err := api.StopServer(30 * time.Second); err != nil {
